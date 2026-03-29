@@ -154,6 +154,19 @@
   const picker = document.getElementById('picker');
   const feed = document.getElementById('feed');
 
+  function html(strings, ...vals) {
+    const safe = s => { const n = document.createElement('span'); n.textContent = s; return n.innerHTML; };
+    return strings.reduce((out, str, i) => out + str + (i < vals.length ? safe(String(vals[i])) : ''), '');
+  }
+
+  feed.addEventListener('click', e => {
+    const btn = e.target.closest('.copy');
+    if (!btn) return;
+    navigator.clipboard.writeText(btn.closest('article').querySelector('.transcript').textContent);
+    btn.textContent = 'copied';
+    setTimeout(() => btn.textContent = 'copy', 1200);
+  });
+
   drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', e => {
@@ -169,7 +182,7 @@
   async function send(file) {
     const t0 = performance.now();
     const el = document.createElement('article');
-    el.innerHTML = `<header><span class="dot live"></span>${esc(file.name)}</header>`;
+    el.innerHTML = html`<header><span class="dot live"></span>${file.name}</header>`;
     feed.prepend(el);
 
     const body = new FormData();
@@ -181,30 +194,18 @@
       if (!res.ok) throw new Error(data.error);
 
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
-      el.innerHTML = `
-        <header><span class="dot done"></span>${esc(data.source)}</header>
-        <button class="copy" onclick="clip(this)">copy</button>
-        <div class="transcript">${esc(data.text)}</div>
+      el.innerHTML = html`
+        <header><span class="dot done"></span>${data.source}</header>
+        <button class="copy">copy</button>
+        <div class="transcript">${data.text}</div>
         <div class="meta">${sec}s</div>`;
     } catch (e) {
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
-      el.innerHTML = `
-        <header><span class="dot fail"></span>${esc(file.name)}</header>
-        <div class="error-msg">${esc(e.message)}</div>
+      el.innerHTML = html`
+        <header><span class="dot fail"></span>${file.name}</header>
+        <div class="error-msg">${e.message}</div>
         <div class="meta">${sec}s</div>`;
     }
-  }
-
-  function clip(btn) {
-    navigator.clipboard.writeText(btn.closest('article').querySelector('.transcript').textContent);
-    btn.textContent = 'copied';
-    setTimeout(() => btn.textContent = 'copy', 1200);
-  }
-
-  function esc(s) {
-    const el = document.createElement('span');
-    el.textContent = s;
-    return el.innerHTML;
   }
 </script>
 </body>

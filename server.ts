@@ -11,8 +11,9 @@ app.post("/api/transcribe", async (c) => {
 		return c.json({ error: "No file provided" }, 400);
 	try {
 		return c.json(await transcribe(file));
-	} catch (e: any) {
-		return c.json({ error: e.message }, 422);
+	} catch (e) {
+		const message = e instanceof Error ? e.message : "Transcription failed";
+		return c.json({ error: message }, 422);
 	}
 });
 

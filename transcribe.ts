@@ -1,11 +1,22 @@
-import OpenAI, { toFile } from "openai";
+import OpenAI from "openai";
 import { join } from "path";
 import { tmpdir } from "os";
 import { unlink } from "fs/promises";
 
 const openai = new OpenAI();
 
-const NATIVE = new Set([
+type Format =
+	| "mp4"
+	| "m4a"
+	| "mp3"
+	| "wav"
+	| "webm"
+	| "mpeg"
+	| "mpga"
+	| "ogg"
+	| "mov";
+
+const ACCEPTED = new Set<string>([
 	"mp4",
 	"m4a",
 	"mp3",
@@ -14,15 +25,15 @@ const NATIVE = new Set([
 	"mpeg",
 	"mpga",
 	"ogg",
+	"mov",
 ]);
-const REMUXABLE = new Set(["mov"]);
+const REMUXABLE = new Set<string>(["mov"]);
 const MAX_BYTES = 25_000_000;
 
 export type Transcript = { text: string; source: string };
 
-type MediaAsset = { blob: Blob; name: string; format: string };
+type MediaAsset = { file: File; name: string; format: Format };
 
-// Temp file scope — cleaned up automatically when the function exits
 class Scope implements AsyncDisposable {
 	#paths: string[] = [];
 
@@ -43,63 +54,73 @@ async function ffmpeg(src: string, dst: string, args: string[]) {
 		stderr: "pipe",
 	});
 	if ((await proc.exited) !== 0) {
-		const stderr = await new Response(proc.stderr).text();
-		throw new Error(stderr.trimEnd().split("\n").pop());
+		const lines = (await new Response(proc.stderr).text())
+			.trimEnd()
+			.split("\n")
+			.filter(Boolean);
+		throw new Error(
+			lines.findLast((l) => l !== "Conversion failed!") ?? "ffmpeg failed",
+		);
 	}
 }
 
+async function convert(
+	blob: Blob,
+	scope: Scope,
+	inExt: string,
+	outExt: string,
+	args: string[],
+): Promise<Blob> {
+	const src = scope.alloc(inExt);
+	const dst = scope.alloc(outExt);
+	await Bun.write(src, blob);
+	await ffmpeg(src, dst, args);
+	return new Blob([await Bun.file(dst).arrayBuffer()]);
+}
+
 function ingest(file: File): MediaAsset {
-	const format = file.name.split(".").pop()?.toLowerCase() ?? "";
-	if (!NATIVE.has(format) && !REMUXABLE.has(format)) {
-		throw new Error(`Unsupported format: .${format}`);
-	}
-	return { blob: file, name: file.name, format };
+	const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+	if (!ACCEPTED.has(ext)) throw new Error(`Unsupported format: .${ext}`);
+	return { file, name: file.name, format: ext as Format };
 }
 
 // .mov → .mp4 — same MPEG-4 family, container swap only, no re-encode
 async function normalize(asset: MediaAsset, scope: Scope): Promise<MediaAsset> {
 	if (!REMUXABLE.has(asset.format)) return asset;
-
-	const src = scope.alloc(asset.format);
-	const dst = scope.alloc("mp4");
-	await Bun.write(src, asset.blob);
-	await ffmpeg(src, dst, ["-c", "copy"]);
-
+	const blob = await convert(asset.file, scope, asset.format, "mp4", [
+		"-c",
+		"copy",
+	]);
 	const name = asset.name.replace(/\.\w+$/, ".mp4");
-	return {
-		blob: new File([await Bun.file(dst).arrayBuffer()], name),
-		name,
-		format: "mp4",
-	};
+	return { file: new File([blob], name), name, format: "mp4" };
 }
 
 // Strip video track, compress audio — fits most files under the API limit
 async function constrain(asset: MediaAsset, scope: Scope): Promise<MediaAsset> {
-	if (asset.blob.size <= MAX_BYTES) return asset;
-
-	const src = scope.alloc(asset.format);
-	const dst = scope.alloc("m4a");
-	await Bun.write(src, asset.blob);
-	await ffmpeg(src, dst, ["-vn", "-acodec", "aac", "-b:a", "128k"]);
-
-	const compressed = Bun.file(dst);
-	if (compressed.size > MAX_BYTES) {
-		throw new Error(`Still ${(compressed.size / 1e6) | 0}MB after compression`);
+	if (asset.file.size <= MAX_BYTES) return asset;
+	const blob = await convert(asset.file, scope, asset.format, "m4a", [
+		"-vn",
+		"-acodec",
+		"aac",
+		"-b:a",
+		"128k",
+	]);
+	if (blob.size > MAX_BYTES) {
+		throw new Error(`Still ${(blob.size / 1e6) | 0}MB after compression`);
 	}
 	return {
-		blob: new File([await compressed.arrayBuffer()], "audio.m4a"),
+		file: new File([blob], "audio.m4a"),
 		name: "audio.m4a",
 		format: "m4a",
 	};
 }
 
 async function submit(asset: MediaAsset): Promise<string> {
-	const result = await openai.audio.transcriptions.create({
-		file: await toFile(asset.blob, asset.name),
+	return openai.audio.transcriptions.create({
+		file: asset.file,
 		model: "gpt-4o-transcribe",
-		response_format: "text",
+		response_format: "text" as const,
 	});
-	return result as unknown as string;
 }
 
 export async function transcribe(file: File): Promise<Transcript> {
