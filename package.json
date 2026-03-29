@@ -1,0 +1,15 @@
+{
+	"name": "transcription",
+	"scripts": {
+		"dev": "bun run --watch server.ts",
+		"start": "bun run server.ts",
+		"format": "bunx @biomejs/biome format --write ."
+	},
+	"dependencies": {
+		"hono": "latest",
+		"openai": "latest"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.11"
+	}
+}

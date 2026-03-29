@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcribe</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 4rem 1.5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main { width: 100%; max-width: 640px; }
+
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 2rem;
+    letter-spacing: -0.01em;
+  }
+
+  #drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 4rem 2rem;
+    border: 1.5px dashed #282828;
+    border-radius: 12px;
+    background: #111;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.2s;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #drop:hover { border-color: #383838; background: #141414; }
+  #drop.over  { border-color: #666; background: #181818; transform: scale(1.005); }
+  #drop span  { font-size: 0.95rem; color: #555; }
+
+  #drop small {
+    font-size: 0.78rem;
+    color: #383838;
+    font-family: 'SF Mono', ui-monospace, monospace;
+  }
+
+  #feed {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+
+  article {
+    background: #111;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    position: relative;
+    animation: enter 0.3s ease;
+  }
+
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(6px); }
+  }
+
+  article header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.78rem;
+    font-family: 'SF Mono', ui-monospace, monospace;
+    color: #444;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot.live { background: #d4a024; animation: pulse 1.5s ease infinite; }
+  .dot.done { background: #4a9; }
+  .dot.fail { background: #c55; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  .transcript {
+    font-size: 0.92rem;
+    line-height: 1.75;
+    color: #bbb;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .error-msg {
+    color: #c55;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .meta {
+    font-size: 0.72rem;
+    color: #333;
+    margin-top: 0.6rem;
+    font-family: 'SF Mono', ui-monospace, monospace;
+  }
+
+  button.copy {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: transparent;
+    border: 1px solid #222;
+    color: #444;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-family: 'SF Mono', ui-monospace, monospace;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  button.copy:hover { border-color: #444; color: #888; }
+</style>
+</head>
+<body>
+<main>
+  <h1>transcribe</h1>
+  <label id="drop" for="picker">
+    <span>Drop audio or video here</span>
+    <small>.mp4 .m4a .mov</small>
+  </label>
+  <input type="file" id="picker" accept=".mp4,.m4a,.mov,.mp3,.wav,.webm" multiple hidden>
+  <output id="feed"></output>
+</main>
+<script>
+  const drop = document.getElementById('drop');
+  const picker = document.getElementById('picker');
+  const feed = document.getElementById('feed');
+
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    [...e.dataTransfer.files].forEach(send);
+  });
+  picker.addEventListener('change', () => {
+    [...picker.files].forEach(send);
+    picker.value = '';
+  });
+
+  async function send(file) {
+    const t0 = performance.now();
+    const el = document.createElement('article');
+    el.innerHTML = `<header><span class="dot live"></span>${esc(file.name)}</header>`;
+    feed.prepend(el);
+
+    const body = new FormData();
+    body.append('file', file);
+
+    try {
+      const res = await fetch('/api/transcribe', { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      const sec = ((performance.now() - t0) / 1000).toFixed(1);
+      el.innerHTML = `
+        <header><span class="dot done"></span>${esc(data.source)}</header>
+        <button class="copy" onclick="clip(this)">copy</button>
+        <div class="transcript">${esc(data.text)}</div>
+        <div class="meta">${sec}s</div>`;
+    } catch (e) {
+      const sec = ((performance.now() - t0) / 1000).toFixed(1);
+      el.innerHTML = `
+        <header><span class="dot fail"></span>${esc(file.name)}</header>
+        <div class="error-msg">${esc(e.message)}</div>
+        <div class="meta">${sec}s</div>`;
+    }
+  }
+
+  function clip(btn) {
+    navigator.clipboard.writeText(btn.closest('article').querySelector('.transcript').textContent);
+    btn.textContent = 'copied';
+    setTimeout(() => btn.textContent = 'copy', 1200);
+  }
+
+  function esc(s) {
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+</script>
+</body>
+</html>
