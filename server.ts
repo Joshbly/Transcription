@@ -19,4 +19,4 @@ app.post("/api/transcribe", async (c) => {
 
 app.get("/*", serveStatic({ root: "./public" }));
 
-export default { port: 3000, fetch: app.fetch, maxRequestBodySize: 512 * 1024 * 1024 };
+export default { port: 3000, fetch: app.fetch, maxRequestBodySize: 2 * 1024 * 1024 * 1024 };
