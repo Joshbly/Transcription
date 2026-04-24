@@ -14,7 +14,8 @@ type Format =
 	| "mpeg"
 	| "mpga"
 	| "ogg"
-	| "mov";
+	| "mov"
+	| "mkv";
 
 const ACCEPTED = new Set<string>([
 	"mp4",
@@ -26,8 +27,8 @@ const ACCEPTED = new Set<string>([
 	"mpga",
 	"ogg",
 	"mov",
+	"mkv",
 ]);
-const REMUXABLE = new Set<string>(["mov"]);
 const MAX_BYTES = 25_000_000;
 
 export type Transcript = { text: string; source: string };
@@ -46,6 +47,33 @@ class Scope implements AsyncDisposable {
 	async [Symbol.asyncDispose]() {
 		await Promise.allSettled(this.#paths.map((p) => unlink(p)));
 	}
+}
+
+async function hasAudio(
+	blob: Blob,
+	scope: Scope,
+	ext: string,
+): Promise<boolean> {
+	const src = scope.alloc(ext);
+	await Bun.write(src, blob);
+	const proc = Bun.spawn(
+		[
+			"ffprobe",
+			"-v",
+			"error",
+			"-select_streams",
+			"a",
+			"-show_entries",
+			"stream=codec_type",
+			"-of",
+			"csv=p=0",
+			src,
+		],
+		{ stdout: "pipe", stderr: "ignore" },
+	);
+	const out = await new Response(proc.stdout).text();
+	await proc.exited;
+	return out.trim().length > 0;
 }
 
 async function ffmpeg(src: string, dst: string, args: string[]) {
@@ -84,15 +112,26 @@ function ingest(file: File): MediaAsset {
 	return { file, name: file.name, format: ext as Format };
 }
 
-// .mov → .mp4 — same MPEG-4 family, container swap only, no re-encode
 async function normalize(asset: MediaAsset, scope: Scope): Promise<MediaAsset> {
-	if (!REMUXABLE.has(asset.format)) return asset;
-	const blob = await convert(asset.file, scope, asset.format, "mp4", [
-		"-c",
-		"copy",
-	]);
-	const name = asset.name.replace(/\.\w+$/, ".mp4");
-	return { file: new File([blob], name), name, format: "mp4" };
+	// .mov → .mp4 — same MPEG-4 family, container swap only, no re-encode
+	if (asset.format === "mov") {
+		const blob = await convert(asset.file, scope, "mov", "mp4", ["-c", "copy"]);
+		const name = asset.name.replace(/\.\w+$/, ".mp4");
+		return { file: new File([blob], name), name, format: "mp4" };
+	}
+	// .mkv — API rejects it and codecs (VP9/Opus/FLAC) aren't always mp4-safe; extract audio straight to m4a
+	if (asset.format === "mkv") {
+		const blob = await convert(asset.file, scope, "mkv", "m4a", [
+			"-vn",
+			"-acodec",
+			"aac",
+			"-b:a",
+			"128k",
+		]);
+		const name = asset.name.replace(/\.\w+$/, ".m4a");
+		return { file: new File([blob], name), name, format: "m4a" };
+	}
+	return asset;
 }
 
 // Strip video track, compress audio — fits most files under the API limit
@@ -126,6 +165,8 @@ async function submit(asset: MediaAsset): Promise<string> {
 export async function transcribe(file: File): Promise<Transcript> {
 	await using scope = new Scope();
 	let asset = ingest(file);
+	if (!(await hasAudio(asset.file, scope, asset.format)))
+		throw new Error("No audio track found — nothing to transcribe");
 	asset = await normalize(asset, scope);
 	asset = await constrain(asset, scope);
 	const text = await submit(asset);

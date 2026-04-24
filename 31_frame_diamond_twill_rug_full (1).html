@@ -1,0 +1,329 @@
+
+<h2 class="sr-only">Full rendering of a 3-by-4 foot diamond twill rug woven on a 31-frame loom, showing every individual thread with correct over/under interlacing as SVG.</h2>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  .specs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  @media (max-width: 480px) { .specs { grid-template-columns: 1fr 1fr; } }
+  .spec { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 10px; }
+  .spec-label { font-size: 10px; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .spec-val { font-size: 18px; font-weight: 500; color: var(--color-text-primary); margin-top: 2px; }
+  .spec-note { font-size: 10px; color: var(--color-text-tertiary); margin-top: 1px; }
+  .rug-wrap { position: relative; text-align: center; margin: 0 auto; }
+  .rug-label { font-size: 11px; color: var(--color-text-tertiary); margin-top: 8px; text-align: center; }
+  .dims { display: flex; justify-content: center; gap: 20px; margin-top: 6px; font-size: 11px; color: var(--color-text-tertiary); }
+  .zoom-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  @media (max-width: 480px) { .zoom-wrap { grid-template-columns: 1fr; } }
+  .zoom-card { background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 10px 12px 8px; }
+  .zoom-title { font-size: 12px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+  .zoom-sub { font-size: 11px; color: var(--color-text-tertiary); margin-top: 4px; line-height: 1.5; }
+  .palette { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .palette-item { display: flex; align-items: center; gap: 4px; }
+  .palette-dot { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  .palette-name { font-size: 10px; color: var(--color-text-tertiary); }
+  .palette-note { font-size: 10px; color: var(--color-text-tertiary); font-style: italic; margin-left: 4px; }
+</style>
+
+<div class="specs">
+  <div class="spec"><div class="spec-label">Heddle frames</div><div class="spec-val">31</div><div class="spec-note">Computer dobby</div></div>
+  <div class="spec"><div class="spec-label">Warp ends</div><div class="spec-val">390</div><div class="spec-note">10 epi + border</div></div>
+  <div class="spec"><div class="spec-label">Total picks</div><div class="spec-val">510</div><div class="spec-note">10 ppi + border</div></div>
+  <div class="spec"><div class="spec-label">Float length</div><div class="spec-val">3</div><div class="spec-note">Rug-safe 3/1 twill</div></div>
+</div>
+
+<div class="rug-wrap">
+  <svg id="rug" style="width:100%;max-width:720px;display:block;margin:0 auto;border-radius:2px"></svg>
+</div>
+<div class="dims">
+  <span>&larr; 36 in (6 diamonds) &rarr;</span>
+  <span>&uarr; 48 in (8 diamonds) &darr;</span>
+</div>
+<div class="rug-label">3/1 diamond twill &middot; 3 weft colors rotating per diamond row &middot; 198,900 thread crossings rendered as SVG</div>
+
+<div class="palette">
+  <div class="palette-item"><span class="palette-dot" style="background:rgb(221,208,184)"></span><span class="palette-name">Warp</span></div>
+  <div class="palette-item"><span class="palette-dot" style="background:rgb(152,48,38)"></span><span class="palette-name">Weft A</span></div>
+  <div class="palette-item"><span class="palette-dot" style="background:rgb(28,40,72)"></span><span class="palette-name">Weft B</span></div>
+  <div class="palette-item"><span class="palette-dot" style="background:rgb(62,82,46)"></span><span class="palette-name">Weft C</span></div>
+  <div class="palette-item"><span class="palette-dot" style="background:rgb(92,66,48)"></span><span class="palette-name">Border</span></div>
+  <span class="palette-note">&mdash; edit WARP, WEFT_COLORS, BORDER_COL in the script to recolor</span>
+</div>
+
+<div class="zoom-wrap">
+  <div class="zoom-card">
+    <div class="zoom-title">Thread-level detail</div>
+    <svg id="zoom" style="width:100%;border-radius:4px"></svg>
+    <div class="zoom-sub">Every line is one thread. Weft passes over 3 warps, under 1. Shadows fall where threads dip under their crossing neighbor. Zoom in (Ctrl/Cmd-scroll) &mdash; every thread stays crisp.</div>
+  </div>
+  <div class="zoom-card">
+    <div class="zoom-title">The loom this requires</div>
+    <svg id="loom-diagram" width="100%" viewBox="0 0 300 200"></svg>
+    <div class="zoom-sub">31 frames stacked vertically, each controlling every 31st warp thread. Requires a computerized dobby head &mdash; no human can operate 31 foot treadles. AVL and ARM Loom make dobby looms in this range.</div>
+  </div>
+</div>
+
+<script>
+const N = 31;
+const CYCLE = 2 * (N - 1);
+const BORDER = 15;
+const FIELD_W = 360;
+const FIELD_H = 480;
+const W = FIELD_W + 2 * BORDER;
+const H = FIELD_H + 2 * BORDER;
+
+const PITCH = 4;
+const TW = 3.2;
+const FRINGE_U = 120;
+const SVG_W = W * PITCH;
+const SVG_H = H * PITCH + 2 * FRINGE_U;
+
+const WARP = [221, 208, 184];
+const WEFT_COLORS = [[152, 48, 38], [28, 40, 72], [62, 82, 46]];
+const BORDER_COL = [92, 66, 48];
+const FRINGE_COL = [200, 188, 165];
+const FRINGE_BG = [245, 240, 232];
+
+function mapped(idx) {
+  const p = ((idx % CYCLE) + CYCLE) % CYCLE;
+  return p >= N ? CYCLE - p : p;
+}
+
+function weftOnTop(row, col) {
+  return ((mapped(col) - mapped(row)) % 4 + 4) % 4 !== 0;
+}
+
+function getWeftColor(fieldRow) {
+  return WEFT_COLORS[Math.floor(fieldRow / CYCLE) % WEFT_COLORS.length];
+}
+
+function getLustre(row, col) {
+  return (mapped(col) < N * 0.5) === (mapped(row) < N * 0.5) ? 1.05 : 0.95;
+}
+
+function getBoundary(row, col) {
+  const mc = mapped(col), mr = mapped(row);
+  const ec = mc <= 1 || mc >= N - 2;
+  const er = mr <= 1 || mr >= N - 2;
+  if (ec && er) return 0.82;
+  if (ec || er) return 0.90;
+  return 1.0;
+}
+
+let rng = 42;
+function rand() { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff; }
+
+function clamp(v) { return Math.min(255, Math.max(0, Math.round(v))); }
+function rgb(r, g, b) { return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`; }
+
+function borderOnTop(c, row) {
+  return ((c + row) % 4 + 4) % 4 < 2;
+}
+
+function buildRuns(start, end, test) {
+  const runs = [];
+  let rs = -1;
+  for (let i = start; i <= end; i++) {
+    if (test(i)) {
+      if (rs === -1) rs = i;
+    } else if (rs !== -1) {
+      runs.push([rs, i - 1]);
+      rs = -1;
+    }
+  }
+  if (rs !== -1) runs.push([rs, end]);
+  return runs;
+}
+
+function runsToD(runs, y, xOff) {
+  let d = '';
+  for (const [a, b] of runs)
+    d += `M${(a + xOff) * PITCH} ${y}h${(b - a + 1) * PITCH}`;
+  return d;
+}
+
+// 3D depth: collect shadow/highlight marks for each weft-on-top run
+function add3D(cs, hi, lo, runs, xOff, y) {
+  for (const [a, b] of runs) {
+    const x1 = (a + xOff) * PITCH, x2 = (b + xOff + 1) * PITCH, len = x2 - x1;
+    const sl = Math.min(2, len * 0.35);
+    cs.push(`M${x1} ${y}h${sl}`);
+    if (len > sl * 2.5) cs.push(`M${x2 - sl} ${y}h${sl}`);
+    hi.push(`M${x1} ${y - TW * 0.5 + 0.3}h${len}`);
+    lo.push(`M${x1} ${y + TW * 0.5 - 0.3}h${len}`);
+  }
+}
+
+function emit3D(parts, cs, hi, lo) {
+  if (hi.length) parts.push(`<path d="${hi.join('')}" stroke="rgba(255,255,255,0.09)" stroke-width="0.7" fill="none"/>`);
+  if (lo.length) parts.push(`<path d="${lo.join('')}" stroke="rgba(0,0,0,0.12)" stroke-width="0.7" fill="none"/>`);
+  if (cs.length) parts.push(`<path d="${cs.join('')}" stroke="rgba(0,0,0,0.22)" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+}
+
+// ─── Main rug SVG ────────────────────────────────────────────
+
+const P = [];
+
+P.push('<defs>');
+P.push('<filter id="weftShadow"><feDropShadow dx="0" dy="1.5" stdDeviation="1" flood-opacity="0.18"/></filter>');
+P.push('</defs>');
+
+P.push(`<rect width="${SVG_W}" height="${SVG_H}" fill="${rgb(...FRINGE_BG)}"/>`);
+P.push(`<rect y="${FRINGE_U}" width="${SVG_W}" height="${H * PITCH}" fill="${rgb(WARP[0] - 15, WARP[1] - 15, WARP[2] - 15)}"/>`);
+
+// Top fringe
+P.push('<g opacity="0.8">');
+for (let c = 0; c < W; c++) {
+  const x = c * PITCH + PITCH / 2;
+  const len = 80 + rand() * 60 - 30;
+  const n = rand() * 14 - 7;
+  P.push(`<line x1="${x}" y1="${FRINGE_U - len}" x2="${x}" y2="${FRINGE_U + 4}" stroke="${rgb(FRINGE_COL[0] + n, FRINGE_COL[1] + n, FRINGE_COL[2] + n)}" stroke-width="${TW * 0.65}" stroke-linecap="round"/>`);
+}
+P.push('</g>');
+
+// Warp threads — base layer, drawn first so weft covers them where weft is on top
+P.push('<g>');
+for (let c = 0; c < W; c++) {
+  const x = c * PITCH + PITCH / 2;
+  const n = rand() * 10 - 5;
+  P.push(`<line x1="${x}" y1="${FRINGE_U}" x2="${x}" y2="${FRINGE_U + H * PITCH}" stroke="${rgb(WARP[0] + n, WARP[1] + n, WARP[2] + n)}" stroke-width="${TW}"/>`);
+}
+P.push('</g>');
+
+// Weft over-segments with drop shadow filter for 3D depth
+const cs = [], hi = [], lo = [];
+P.push('<g filter="url(#weftShadow)">');
+for (let row = 0; row < H; row++) {
+  const y = FRINGE_U + row * PITCH + PITCH / 2;
+  const rowNoise = rand() * 8 - 4;
+  const inBorderRow = row < BORDER || row >= H - BORDER;
+
+  if (inBorderRow) {
+    const runs = buildRuns(0, W - 1, c => borderOnTop(c, row));
+    const d = runsToD(runs, y, 0);
+    if (d) P.push(`<path d="${d}" stroke="${rgb(BORDER_COL[0] + rowNoise, BORDER_COL[1] + rowNoise, BORDER_COL[2] + rowNoise)}" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+    add3D(cs, hi, lo, runs, 0, y);
+  } else {
+    const fy = row - BORDER;
+    const bw = getWeftColor(fy);
+
+    const lRuns = buildRuns(0, BORDER - 1, c => borderOnTop(c, row));
+    const ld = runsToD(lRuns, y, 0);
+    if (ld) P.push(`<path d="${ld}" stroke="${rgb(BORDER_COL[0] + rowNoise, BORDER_COL[1] + rowNoise, BORDER_COL[2] + rowNoise)}" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+    add3D(cs, hi, lo, lRuns, 0, y);
+
+    const fRuns = buildRuns(0, FIELD_W - 1, fc => weftOnTop(fy, fc));
+    const cg = {};
+    for (const [fc1, fc2] of fRuns) {
+      const mid = (fc1 + fc2) >> 1;
+      const m = getLustre(fy, mid) * getBoundary(fy, mid);
+      const key = rgb(bw[0] * m + rowNoise, bw[1] * m + rowNoise, bw[2] * m + rowNoise);
+      if (!cg[key]) cg[key] = '';
+      cg[key] += `M${(BORDER + fc1) * PITCH} ${y}h${(fc2 - fc1 + 1) * PITCH}`;
+    }
+    for (const k in cg)
+      P.push(`<path d="${cg[k]}" stroke="${k}" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+    add3D(cs, hi, lo, fRuns, BORDER, y);
+
+    const rRuns = buildRuns(W - BORDER, W - 1, c => borderOnTop(c, row));
+    const rd = runsToD(rRuns, y, 0);
+    if (rd) P.push(`<path d="${rd}" stroke="${rgb(BORDER_COL[0] + rowNoise, BORDER_COL[1] + rowNoise, BORDER_COL[2] + rowNoise)}" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+    add3D(cs, hi, lo, rRuns, 0, y);
+  }
+}
+P.push('</g>');
+
+// Thread roundness highlights/shadows + crossing transition shadows
+emit3D(P, cs, hi, lo);
+
+// Bottom fringe
+const botY = FRINGE_U + H * PITCH;
+P.push('<g opacity="0.8">');
+for (let c = 0; c < W; c++) {
+  const x = c * PITCH + PITCH / 2;
+  const len = 80 + rand() * 60 - 30;
+  const n = rand() * 14 - 7;
+  P.push(`<line x1="${x}" y1="${botY - 4}" x2="${x}" y2="${botY + len}" stroke="${rgb(FRINGE_COL[0] + n, FRINGE_COL[1] + n, FRINGE_COL[2] + n)}" stroke-width="${TW * 0.65}" stroke-linecap="round"/>`);
+}
+P.push('</g>');
+
+const rugEl = document.getElementById('rug');
+rugEl.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+rugEl.innerHTML = P.join('');
+
+// ─── Zoom SVG ────────────────────────────────────────────────
+
+const ZC = 60, ZR = 40;
+const ZFC0 = 140, ZFR0 = 40;
+const ZVW = ZC * PITCH, ZVH = ZR * PITCH;
+
+rng = 777;
+const Z = [];
+
+Z.push('<defs>');
+Z.push('<filter id="zWeft"><feDropShadow dx="0" dy="1.5" stdDeviation="1" flood-opacity="0.18"/></filter>');
+Z.push('</defs>');
+
+Z.push(`<rect width="${ZVW}" height="${ZVH}" fill="${rgb(...FRINGE_BG)}"/>`);
+
+Z.push('<g>');
+for (let i = 0; i < ZC; i++) {
+  const x = i * PITCH + PITCH / 2;
+  const n = rand() * 10 - 5;
+  Z.push(`<line x1="${x}" y1="0" x2="${x}" y2="${ZVH}" stroke="${rgb(WARP[0] + n, WARP[1] + n, WARP[2] + n)}" stroke-width="${TW}"/>`);
+}
+Z.push('</g>');
+
+const zcs = [], zhi = [], zlo = [];
+Z.push('<g filter="url(#zWeft)">');
+for (let ri = 0; ri < ZR; ri++) {
+  const fy = ZFR0 + ri;
+  const y = ri * PITCH + PITCH / 2;
+  const bw = getWeftColor(fy);
+  const rowNoise = rand() * 8 - 4;
+  const fRuns = buildRuns(0, ZC - 1, i => weftOnTop(fy, ZFC0 + i));
+  const cg = {};
+  for (const [i1, i2] of fRuns) {
+    const midFc = ZFC0 + ((i1 + i2) >> 1);
+    const m = getLustre(fy, midFc) * getBoundary(fy, midFc);
+    const key = rgb(bw[0] * m + rowNoise, bw[1] * m + rowNoise, bw[2] * m + rowNoise);
+    if (!cg[key]) cg[key] = '';
+    cg[key] += `M${i1 * PITCH} ${y}h${(i2 - i1 + 1) * PITCH}`;
+  }
+  for (const k in cg)
+    Z.push(`<path d="${cg[k]}" stroke="${k}" stroke-width="${TW}" fill="none" stroke-linecap="round"/>`);
+  add3D(zcs, zhi, zlo, fRuns, 0, y);
+}
+Z.push('</g>');
+emit3D(Z, zcs, zhi, zlo);
+
+const zoomEl = document.getElementById('zoom');
+zoomEl.setAttribute('viewBox', `0 0 ${ZVW} ${ZVH}`);
+zoomEl.innerHTML = Z.join('');
+
+// ─── Loom diagram ────────────────────────────────────────────
+
+const dk = matchMedia('(prefers-color-scheme:dark)').matches;
+const loomSvg = document.getElementById('loom-diagram');
+const frameCols = [
+  dk ? '#7F77DD' : '#534AB7', dk ? '#1D9E75' : '#0F6E56', dk ? '#D85A30' : '#993C1D',
+  dk ? '#EF9F27' : '#BA7517', dk ? '#4A7ABB' : '#185FA5', dk ? '#D4537E' : '#993556'
+];
+const TXT_D = dk ? '#5a5850' : '#aaa8a0';
+const TXT_M = dk ? '#8a8880' : '#73726c';
+const FBG = dk ? '#2a2a28' : '#F0EDE6';
+
+let ls = '';
+ls += `<rect x="10" y="10" width="280" height="180" rx="6" fill="${FBG}" opacity="0.5"/>`;
+const frameH = 4.5, frameGap = 5.5, startY = 15, fW = 220, fX = 40;
+
+for (let f = 0; f < N; f++) {
+  const fy = startY + f * frameGap;
+  if (fy + frameH > 188) break;
+  ls += `<rect x="${fX}" y="${fy}" width="${fW}" height="${frameH}" rx="1" fill="${frameCols[f % frameCols.length]}" opacity="0.7"/>`;
+  if (f % 5 === 0)
+    ls += `<text x="${fX - 4}" y="${fy + frameH / 2 + 1}" font-family="var(--font-sans)" font-size="7" fill="${TXT_D}" text-anchor="end" dominant-baseline="central">${f + 1}</text>`;
+}
+ls += `<text x="${fX - 4}" y="${startY + 30 * frameGap + frameH / 2 + 1}" font-family="var(--font-sans)" font-size="7" fill="${TXT_D}" text-anchor="end" dominant-baseline="central">31</text>`;
+ls += `<text x="${fX + fW / 2}" y="${startY + Math.min(31, 28) * frameGap + 18}" font-family="var(--font-sans)" font-size="9" fill="${TXT_M}" text-anchor="middle">31 frames, each 4.5mm apart</text>`;
+
+loomSvg.innerHTML = ls;
+</script>
