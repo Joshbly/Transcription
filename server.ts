@@ -19,8 +19,18 @@ app.post("/api/transcribe", async (c) => {
 
 app.get("/*", serveStatic({ root: "./public" }));
 
-export default {
-	port: 3000,
-	fetch: app.fetch,
-	maxRequestBodySize: 2 * 1024 * 1024 * 1024,
-};
+function serve(port: number): ReturnType<typeof Bun.serve> {
+	try {
+		return Bun.serve({
+			port,
+			fetch: app.fetch,
+			maxRequestBodySize: 2 * 1024 * 1024 * 1024,
+		});
+	} catch (e) {
+		if ((e as { code?: string }).code !== "EADDRINUSE") throw e;
+		return serve(port + 1);
+	}
+}
+
+const server = serve(3000);
+console.log(`Started server: ${server.url}`);

@@ -61,12 +61,14 @@ bun start
 You should see:
 
 ```
-Started development server: http://localhost:3000
+Started server: http://localhost:3000/
 ```
+
+If port 3000 is taken, the app uses the next free port (3001, 3002, ...) — check the printed URL.
 
 ### 7. Open the app
 
-Go to http://localhost:3000 in your browser. Drag a file onto the page.
+Go to the printed URL in your browser. Drag a file onto the page.
 
 ---
 
