@@ -1,21 +1,9 @@
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import { join } from "path";
 import { tmpdir } from "os";
-import { unlink } from "fs/promises";
+import { mkdtemp, readdir, rm } from "fs/promises";
 
 const openai = new OpenAI();
-
-type Format =
-	| "mp4"
-	| "m4a"
-	| "mp3"
-	| "wav"
-	| "webm"
-	| "mpeg"
-	| "mpga"
-	| "ogg"
-	| "mov"
-	| "mkv";
 
 const ACCEPTED = new Set<string>([
 	"mp4",
@@ -29,33 +17,44 @@ const ACCEPTED = new Set<string>([
 	"mov",
 	"mkv",
 ]);
+// The API rejects .mov/.mkv, so those always get their audio pulled out
+const PASSTHROUGH = new Set([
+	"mp4",
+	"m4a",
+	"mp3",
+	"wav",
+	"webm",
+	"mpeg",
+	"mpga",
+	"ogg",
+]);
 const MAX_BYTES = 25_000_000;
+// gpt-4o-transcribe caps both input duration and output length; 5-min chunks stay well clear of both
+const SEGMENT_SECONDS = 5 * 60;
+const CONCURRENT_UPLOADS = 6;
 
 export type Transcript = { text: string; source: string };
-
-type MediaAsset = { file: File; name: string; format: Format };
 
 class Scope implements AsyncDisposable {
 	#paths: string[] = [];
 
-	alloc(ext: string) {
-		const p = join(tmpdir(), `t9n_${crypto.randomUUID()}.${ext}`);
+	track(p: string) {
 		this.#paths.push(p);
 		return p;
 	}
 
+	alloc(ext: string) {
+		return this.track(join(tmpdir(), `t9n_${crypto.randomUUID()}.${ext}`));
+	}
+
 	async [Symbol.asyncDispose]() {
-		await Promise.allSettled(this.#paths.map((p) => unlink(p)));
+		await Promise.allSettled(
+			this.#paths.map((p) => rm(p, { recursive: true, force: true })),
+		);
 	}
 }
 
-async function hasAudio(
-	blob: Blob,
-	scope: Scope,
-	ext: string,
-): Promise<boolean> {
-	const src = scope.alloc(ext);
-	await Bun.write(src, blob);
+async function hasAudio(src: string): Promise<boolean> {
 	const proc = Bun.spawn(
 		[
 			"ffprobe",
@@ -92,83 +91,67 @@ async function ffmpeg(src: string, dst: string, args: string[]) {
 	}
 }
 
-async function convert(
-	blob: Blob,
-	scope: Scope,
-	inExt: string,
-	outExt: string,
-	args: string[],
-): Promise<Blob> {
-	const src = scope.alloc(inExt);
-	const dst = scope.alloc(outExt);
-	await Bun.write(src, blob);
-	await ffmpeg(src, dst, args);
-	return new Blob([await Bun.file(dst).arrayBuffer()]);
-}
-
-function ingest(file: File): MediaAsset {
-	const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-	if (!ACCEPTED.has(ext)) throw new Error(`Unsupported format: .${ext}`);
-	return { file, name: file.name, format: ext as Format };
-}
-
-async function normalize(asset: MediaAsset, scope: Scope): Promise<MediaAsset> {
-	// .mov → .mp4 — same MPEG-4 family, container swap only, no re-encode
-	if (asset.format === "mov") {
-		const blob = await convert(asset.file, scope, "mov", "mp4", ["-c", "copy"]);
-		const name = asset.name.replace(/\.\w+$/, ".mp4");
-		return { file: new File([blob], name), name, format: "mp4" };
-	}
-	// .mkv — API rejects it and codecs (VP9/Opus/FLAC) aren't always mp4-safe; extract audio straight to m4a
-	if (asset.format === "mkv") {
-		const blob = await convert(asset.file, scope, "mkv", "m4a", [
-			"-vn",
-			"-acodec",
-			"aac",
-			"-b:a",
-			"128k",
-		]);
-		const name = asset.name.replace(/\.\w+$/, ".m4a");
-		return { file: new File([blob], name), name, format: "m4a" };
-	}
-	return asset;
-}
-
-// Strip video track, compress audio — fits most files under the API limit
-async function constrain(asset: MediaAsset, scope: Scope): Promise<MediaAsset> {
-	if (asset.file.size <= MAX_BYTES) return asset;
-	const blob = await convert(asset.file, scope, asset.format, "m4a", [
+// Drop video, mono 64k AAC — fine for speech, and a 5-min chunk lands around 2.5MB
+async function extractAudio(src: string, scope: Scope): Promise<string[]> {
+	const dir = scope.track(await mkdtemp(join(tmpdir(), "t9n_")));
+	await ffmpeg(src, join(dir, "part_%03d.m4a"), [
 		"-vn",
-		"-acodec",
+		"-ac",
+		"1",
+		"-c:a",
 		"aac",
 		"-b:a",
-		"128k",
+		"64k",
+		"-f",
+		"segment",
+		"-segment_time",
+		String(SEGMENT_SECONDS),
+		"-reset_timestamps",
+		"1",
 	]);
-	if (blob.size > MAX_BYTES) {
-		throw new Error(`Still ${(blob.size / 1e6) | 0}MB after compression`);
-	}
-	return {
-		file: new File([blob], "audio.m4a"),
-		name: "audio.m4a",
-		format: "m4a",
-	};
+	// The segmenter can leave a few-ms tail chunk that the API rejects as corrupt; ~8KB is 1s at 64k
+	return (await readdir(dir))
+		.sort()
+		.map((part) => join(dir, part))
+		.filter((part) => Bun.file(part).size > 8_000);
 }
 
-async function submit(asset: MediaAsset): Promise<string> {
+async function submit(path: string): Promise<string> {
 	return openai.audio.transcriptions.create({
-		file: asset.file,
+		file: await toFile(Bun.file(path), path.split("/").pop()),
 		model: "gpt-4o-transcribe",
 		response_format: "text" as const,
 	});
 }
 
-export async function transcribe(file: File): Promise<Transcript> {
+export async function transcribe(
+	upload: ReadableStream<Uint8Array>,
+	name: string,
+): Promise<Transcript> {
+	const ext = name.split(".").pop()?.toLowerCase() ?? "";
+	if (!ACCEPTED.has(ext)) throw new Error(`Unsupported format: .${ext}`);
+
 	await using scope = new Scope();
-	let asset = ingest(file);
-	if (!(await hasAudio(asset.file, scope, asset.format)))
+	// Straight to disk — multi-GB videos can't be buffered in memory.
+	// Not Bun.write(src, new Response(upload)): that hangs on request streams in Bun 1.3
+	const src = scope.alloc(ext);
+	const sink = Bun.file(src).writer();
+	for await (const chunk of upload) await sink.write(chunk);
+	await sink.end();
+
+	if (!(await hasAudio(src)))
 		throw new Error("No audio track found — nothing to transcribe");
-	asset = await normalize(asset, scope);
-	asset = await constrain(asset, scope);
-	const text = await submit(asset);
-	return { text, source: file.name };
+
+	const parts =
+		PASSTHROUGH.has(ext) && Bun.file(src).size <= MAX_BYTES
+			? [src]
+			: await extractAudio(src, scope);
+	const texts: string[] = [];
+	for (let i = 0; i < parts.length; i += CONCURRENT_UPLOADS)
+		texts.push(
+			...(await Promise.all(
+				parts.slice(i, i + CONCURRENT_UPLOADS).map(submit),
+			)),
+		);
+	return { text: texts.join("\n\n"), source: name };
 }

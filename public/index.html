@@ -182,14 +182,22 @@
   async function send(file) {
     const t0 = performance.now();
     const el = document.createElement('article');
-    el.innerHTML = html`<header><span class="dot live"></span>${file.name}</header>`;
+    // Mirrors the server: anything over the API's 25MB limit (or .mov/.mkv) gets its audio extracted
+    const extracting = file.size > 25e6 || /\.(mov|mkv)$/i.test(file.name);
+    const gb = file.size / 1e9;
+    const size = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(file.size / 1e6).toFixed(1)} MB`;
+    el.innerHTML = html`
+      <header><span class="dot live"></span>${file.name}</header>
+      <div class="meta">${size}${extracting ? ' · extracting audio before transcribing' : ''}</div>`;
     feed.prepend(el);
 
-    const body = new FormData();
-    body.append('file', file);
-
     try {
-      const res = await fetch('/api/transcribe', { method: 'POST', body });
+      // Raw body, not FormData, so the server can stream it straight to disk
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: file,
+        headers: { 'x-filename': encodeURIComponent(file.name) },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 

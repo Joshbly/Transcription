@@ -5,12 +5,11 @@ import { transcribe } from "./transcribe";
 const app = new Hono();
 
 app.post("/api/transcribe", async (c) => {
-	const body = await c.req.parseBody();
-	const file = body.file;
-	if (!(file instanceof File))
+	const name = decodeURIComponent(c.req.header("x-filename") ?? "");
+	if (!name || !c.req.raw.body)
 		return c.json({ error: "No file provided" }, 400);
 	try {
-		return c.json(await transcribe(file));
+		return c.json(await transcribe(c.req.raw.body, name));
 	} catch (e) {
 		const message = e instanceof Error ? e.message : "Transcription failed";
 		return c.json({ error: message }, 422);
@@ -24,7 +23,9 @@ function serve(port: number): ReturnType<typeof Bun.serve> {
 		return Bun.serve({
 			port,
 			fetch: app.fetch,
-			maxRequestBodySize: 2 * 1024 * 1024 * 1024,
+			maxRequestBodySize: 20 * 1024 ** 3,
+			// Extracting audio from a long video takes minutes with nothing on the wire
+			idleTimeout: 0,
 		});
 	} catch (e) {
 		if ((e as { code?: string }).code !== "EADDRINUSE") throw e;

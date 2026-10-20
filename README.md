@@ -76,14 +76,15 @@ Go to the printed URL in your browser. Drag a file onto the page.
 
 | Format | Max size | Notes |
 |--------|----------|-------|
-| .mp4   | 2 GB     | Most common |
-| .m4a   | 2 GB     | Audio only |
-| .mov   | 2 GB     | Auto-converted to mp4 |
-| .mp3   | 2 GB     | Works directly |
-| .wav   | 2 GB     | Works directly |
-| .webm  | 2 GB     | Works directly |
+| .mp4   | 20 GB    | Most common |
+| .m4a   | 20 GB    | Audio only |
+| .mov   | 20 GB    | Audio extracted |
+| .mkv   | 20 GB    | Audio extracted |
+| .mp3   | 20 GB    | Works directly |
+| .wav   | 20 GB    | Works directly |
+| .webm  | 20 GB    | Works directly |
 
-Files over 25 MB are automatically compressed before transcription. You don't need to do anything.
+Files over 25 MB skip straight to audio extraction: the video is thrown away and the audio is split into 5-minute chunks, transcribed, and joined back together. You don't need to do anything. You need free disk space of roughly the file's size while it's processing.
 
 ---
 
@@ -104,7 +105,7 @@ If something goes wrong, paste the error message into Claude or ChatGPT along wi
 
 **File upload fails:**
 
-> I'm uploading a [size] [format] file to a local transcription app. The server uses ffmpeg to compress files over 25MB, then sends them to OpenAI's gpt-4o-transcribe API. I'm getting this error: [paste error]. How do I fix it?
+> I'm uploading a [size] [format] file to a local transcription app. The server uses ffmpeg to extract audio from files over 25MB in 5-minute chunks, then sends them to OpenAI's gpt-4o-transcribe API. I'm getting this error: [paste error]. How do I fix it?
 
 **ffmpeg issues:**
 
